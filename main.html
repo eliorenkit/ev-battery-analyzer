@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>EV Battery Analyzer Simulator</title>
+<style>
+:root{font-family:system-ui,-apple-system,Segoe UI,sans-serif;color:#172033;background:#f4f7fb}
+*{box-sizing:border-box}body{margin:0;padding:18px}.app{max-width:980px;margin:auto}
+header,.panel,.metric{background:white;border:1px solid #dce3ed;border-radius:14px;padding:16px;margin-bottom:14px}
+header{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+h1{font-size:clamp(22px,4vw,32px);margin:0 0 5px}h2{font-size:17px;margin:0 0 14px}
+.sub,.muted{color:#64748b;font-size:13px}.status{border-radius:20px;padding:6px 10px;background:#e8f7ef;color:#176b40;font-size:12px}
+.metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.metric{margin:0;padding:14px}.metric label{font-size:12px;color:#64748b}.value{font-size:clamp(21px,3vw,28px);font-weight:700;margin-top:6px}
+.bar{height:8px;background:#e5eaf1;border-radius:8px;overflow:hidden;margin-top:10px}.fill{height:100%;width:100%;background:#16a36a}
+.controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+label{display:block;font-size:13px;color:#475569;margin-bottom:6px}select,input{width:100%;font:inherit;border:1px solid #cbd5e1;border-radius:8px;padding:10px;background:white;color:#172033}
+input[type=range]{padding:0;accent-color:#147dca}.field{margin-bottom:13px}.buttons{display:flex;gap:8px;flex-wrap:wrap}
+button{font:inherit;border:1px solid #cbd5e1;border-radius:9px;background:white;padding:10px 14px;cursor:pointer}
+button.primary{background:#1266c5;color:white;border-color:#1266c5}button:disabled{opacity:.45;cursor:not-allowed}
+canvas{display:block;width:100%;height:250px}.results .row{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid #e8edf3;font-size:14px}.results .row:last-child{border:0}
+.notice{background:#fff8e6;border:1px solid #f0dca6;border-radius:10px;padding:12px;font-size:12px;color:#76541b;line-height:1.5}
+@media(max-width:650px){body{padding:10px}.metrics{grid-template-columns:repeat(2,minmax(0,1fr))}.controls{grid-template-columns:1fr}canvas{height:220px}}
+</style>
+</head>
+<body><main class="app">
+<header><div><h1>EV Battery Analyzer</h1><div class="sub">Battery discharge · Controllable load · Live telemetry</div></div><span class="status" id="status">Ready</span></header>
+<section class="metrics">
+<div class="metric"><label>Battery voltage</label><div class="value"><span id="voltage">4.20</span> V</div><div class="sub">Terminal voltage</div></div>
+<div class="metric"><label>Load current</label><div class="value"><span id="current">0.80</span> A</div><div class="sub">Simulated measurement</div></div>
+<div class="metric"><label>Load power</label><div class="value"><span id="power">3.36</span> W</div><div class="sub">Voltage × current</div></div>
+<div class="metric"><label>Battery SOC</label><div class="value"><span id="soc">100.0</span>%</div><div class="bar"><div class="fill" id="socbar"></div></div></div>
+</section>
+<section class="panel"><h2>Battery and load settings</h2>
+<div class="controls">
+<div>
+<div class="field"><label for="nominal">Battery voltage</label><select id="nominal"><option value="3.7">3.7 V lithium-ion cell</option><option value="12">12 V battery</option><option value="24">24 V battery pack</option><option value="48">48 V battery pack</option></select></div>
+<div class="field"><label for="capacity">Battery capacity</label><select id="capacity"><option value="2.5">2.5 Ah</option><option value="5">5 Ah</option><option value="10">10 Ah</option><option value="20">20 Ah</option></select></div>
+<div class="field"><label for="road">Road / load condition</label><select id="road"><option value="flat">Flat road — 0.8 A</option><option value="slope">Slope — 1.5 A</option><option value="hill">Hill — 2.4 A</option><option value="steep">Steep hill — 3.3 A</option><option value="manual">Manual adjustable load</option></select></div>
+<div class="field"><label for="speed">Simulation speed</label><select id="speed"><option value="1">1×</option><option value="10" selected>10× faster</option><option value="60">60× faster</option></select></div>
+</div>
+<div>
+<div class="field"><label for="load">Manual load current: <b><span id="loadtxt">0.8</span> A</b></label><input id="load" type="range" min="0.2" max="3.3" step="0.1" value="0.8"></div>
+<div class="field"><label for="initial">Initial SOC</label><select id="initial"><option value="100">100%</option><option value="80">80%</option><option value="60">60%</option><option value="50">50%</option></select></div>
+<div class="field"><label for="temp">Battery temperature: <b><span id="temptxt">25</span> °C</b></label><input id="temp" type="range" min="-20" max="60" step="5" value="25"><div class="sub">Temperature changes usable capacity, internal resistance, and terminal voltage.</div></div><div class="field"><label for="resistance">Base internal resistance</label><select id="resistance"><option value="0.08">0.08 Ω</option><option value="0.03">0.03 Ω</option><option value="0.15">0.15 Ω</option></select></div>
+<div class="buttons"><button class="primary" id="start">▶ Start test</button><button id="pause" disabled>Ⅱ Pause</button><button id="reset">↺ Reset</button></div>
+<p class="muted">Choose a road condition to change simulated current. Higher current generally means faster discharge.</p>
+</div></div></section>
+<section class="panel"><h2>Live discharge graph <select id="mode" style="float:right;width:auto"><option value="soc">SOC (%)</option><option value="voltage">Voltage (V)</option><option value="current">Current (A)</option></select></h2><canvas id="chart" aria-label="Live battery discharge graph"></canvas><div class="sub">X-axis: elapsed simulated time (minutes). Graph updates while running.</div></section>
+<section class="panel results"><h2>Test results</h2>
+<div class="row"><span class="muted">Elapsed time</span><b id="time">00:00</b></div>
+<div class="row"><span class="muted">Discharged capacity</span><b><span id="ah">0.000</span> Ah</b></div>
+<div class="row"><span class="muted">Remaining charge estimate</span><b><span id="remaining">2.500</span> Ah</b></div>
+<div class="row"><span class="muted">Energy delivered</span><b><span id="wh">0.000</span> Wh</b></div>
+<div class="row"><span class="muted">Load condition</span><b id="roadname">Flat road</b></div>
+<div class="row"><span class="muted">Battery temperature</span><b><span id="tempresult">25</span> °C</b></div>
+<div class="row"><span class="muted">Temperature-adjusted capacity</span><b><span id="effcap">2.500</span> Ah</b></div>
+<div class="row"><span class="muted">Effective internal resistance</span><b><span id="effres">0.080</span> Ω</b></div>
+<div class="row"><span class="muted">Samples recorded</span><b id="samples">0</b></div>
+<div class="buttons" style="margin-top:14px"><button id="csv">↓ Export CSV for Excel</button><button id="clear">Clear graph data</button></div>
+</section>
+<div class="notice"><b>Simulation only.</b> Temperature is modelled illustratively: cold temperatures reduce available capacity and increase internal resistance, while high temperatures can modestly reduce usable capacity. Real cells vary by chemistry, age, and manufacturer. This software uses an illustrative battery model; readings are not physical sensor measurements and are not calibrated test results. A real battery analyzer needs correctly rated sensors, load hardware, fuse, wiring and thermal protection. Never connect an actual battery to GPIO pins.</div>
+</main>
+<script>
+(()=>{'use strict';
+const $=id=>document.getElementById(id),roads={flat:{name:'Flat road',i:.8},slope:{name:'Slope',i:1.5},hill:{name:'Hill',i:2.4},steep:{name:'Steep hill',i:3.3},manual:{name:'Manual load',i:.8}};
+let running=false,ended=false,t=0,ah=0,wh=0,initial=100,cap=2.5,data=[],timer=null,last=0;
+function cfg(){return {nom:+$('nominal').value,cap:+$('capacity').value,res:+$('resistance').value,temp:+$('temp').value,speed:+$('speed').value,road:$('road').value,initial:+$('initial').value}}
+function tempModel(temp){
+  // Illustrative lithium-ion temperature model: cold reduces available capacity and
+  // raises resistance; very hot conditions also modestly reduce usable capacity.
+  let capacityFactor, resistanceFactor;
+  if(temp < 0) capacityFactor=Math.max(0.55,0.70 + (temp/20)*0.15);
+  else if(temp <= 25) capacityFactor=0.70 + 0.30*(temp/25);
+  else if(temp <= 40) capacityFactor=1 - (temp-25)*0.003;
+  else capacityFactor=Math.max(0.80,0.955 - (temp-40)*0.007);
+  if(temp < 25) resistanceFactor=1 + (25-temp)*0.025;
+  else resistanceFactor=1 + (temp-25)*0.006;
+  return {capacityFactor,resistanceFactor,usableCap:cfg().cap*capacityFactor,effectiveResistance:cfg().res*resistanceFactor};
+}
+function amps(){let c=cfg();return c.road==='manual'?+$('load').value:roads[c.road].i}
+function ocv(s,c){const pts=[[0,3],[5,3.25],[10,3.45],[20,3.6],[30,3.7],[40,3.76],[50,3.82],[60,3.88],[70,3.94],[80,4],[90,4.1],[95,4.16],[100,4.2]];let q=s*100,lo=pts[0],hi=pts.at(-1);for(let j=1;j<pts.length;j++){if(q<=pts[j][0]){lo=pts[j-1];hi=pts[j];break}}return (lo[1]+(hi[1]-lo[1])*(q-lo[0])/(hi[0]-lo[0]))*c.nom/3.7}
+function get(){let c=cfg(),tm=tempModel(c.temp),usable=tm.usableCap;
+  let s=Math.max(0,initial-ah/usable*100),i=s<=0?0:amps();
+  let tempVoltageOffset=(c.temp<0 ? (c.temp*-1)*0.0015 : c.temp>40 ? (c.temp-40)*0.0008 : 0);
+  let v=s<=0?c.nom*3/3.7:Math.max(c.nom*3/3.7,ocv(s/100,c)-i*tm.effectiveResistance-tempVoltageOffset);
+  return {c,s,i,v,p:i*v,tm,usable};
+}
+function fmt(s){s=Math.floor(s);return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0')}
+function record(){let z=get();data.push({t,soc:z.s,v:z.v,i:z.i,p:z.p,ah,wh,temp:z.c.temp,usableCap:z.usable,effectiveResistance:z.tm.effectiveResistance,road:roads[z.c.road].name});if(data.length>20000)data.shift()}
+function update(){let z=get();$('voltage').textContent=z.v.toFixed(2);$('current').textContent=z.i.toFixed(2);$('power').textContent=z.p.toFixed(2);$('soc').textContent=z.s.toFixed(1);$('socbar').style.width=z.s+'%';$('ah').textContent=ah.toFixed(3);$('remaining').textContent=Math.max(0,z.usable-ah).toFixed(3);$('wh').textContent=wh.toFixed(3);$('time').textContent=fmt(t);$('samples').textContent=data.length;$('roadname').textContent=roads[z.c.road].name;$('loadtxt').textContent=(+$('load').value).toFixed(1);$('temptxt').textContent=z.c.temp;$('tempresult').textContent=z.c.temp;$('effcap').textContent=z.usable.toFixed(3);$('effres').textContent=z.tm.effectiveResistance.toFixed(3);$('status').textContent=ended?'Discharged':running?'Running':t?'Paused':'Ready';$('start').disabled=running||ended;$('pause').disabled=!running;draw()}
+function tick(){if(!running)return;let now=Date.now(),dt=Math.min((now-last)/1000,1)*cfg().speed;last=now;t+=dt;let z=get();ah=Math.min(tempModel(cfg().temp).usableCap*initial/100,ah+z.i*dt/3600);wh+=z.p*dt/3600;record();if(ah>=tempModel(cfg().temp).usableCap*initial/100-1e-10){ah=tempModel(cfg().temp).usableCap*initial/100;running=false;ended=true;clearInterval(timer);timer=null;record()}update()}
+function start(){if(running||ended)return;running=true;last=Date.now();timer=setInterval(tick,250);update()}
+function pause(){running=false;if(timer)clearInterval(timer);timer=null;update()}
+function reset(){pause();t=0;ah=0;wh=0;data=[];ended=false;initial=cfg().initial;cap=cfg().cap;record();update()}
+function draw(){let c=$('chart'),box=c.getBoundingClientRect();if(!box.width)return;let dpr=window.devicePixelRatio||1,W=box.width,H=250;c.width=W*dpr;c.height=H*dpr;let x=c.getContext('2d');x.scale(dpr,dpr);x.clearRect(0,0,W,H);let L=43,R=10,T=12,B=29,gw=W-L-R,gh=H-T-B,mode=$('mode').value,z=cfg(),maxX=Math.max(1,t/60),maxY=mode==='soc'?100:mode==='voltage'?z.nom*4.3/3.7:3.5;const muted='#64748b',grid='#e1e7ef';x.font='11px system-ui';x.lineWidth=1;x.strokeStyle=grid;x.fillStyle=muted;for(let k=0;k<=4;k++){let y=T+gh*k/4;x.beginPath();x.moveTo(L,y);x.lineTo(W-R,y);x.stroke();let v=maxY*(1-k/4);x.fillText((mode==='soc'?v.toFixed(0)+'%':v.toFixed(1)),2,y+4);let xx=L+gw*k/4;x.beginPath();x.moveTo(xx,T);x.lineTo(xx,T+gh);x.stroke();x.fillText((maxX*k/4).toFixed(1),Math.max(0,xx-7),H-8)}if(data.length<2)return;let key=mode==='soc'?'soc':mode==='voltage'?'v':'i';x.beginPath();data.forEach((d,j)=>{let xx=L+gw*(d.t/60)/maxX,yy=T+gh*(1-d[key]/(maxY||1));if(j===0)x.moveTo(xx,yy);else x.lineTo(xx,yy)});x.strokeStyle='#1683c7';x.lineWidth=2.4;x.stroke()}
+$('start').addEventListener('click',start);$('pause').addEventListener('click',pause);$('reset').addEventListener('click',reset);$('load').addEventListener('input',update);$('mode').addEventListener('change',draw);
+['nominal','capacity','road','resistance','initial','speed','temp'].forEach(id=>$(id).addEventListener('change',()=>{if(t===0){initial=cfg().initial;cap=cfg().cap}update()}));$('temp').addEventListener('input',update);
+$('csv').addEventListener('click',()=>{const rows=[['Elapsed seconds','Elapsed minutes','SOC percent','Voltage V','Current A','Power W','Temperature C','Temperature-adjusted capacity Ah','Effective resistance Ohm','Discharged Ah','Energy Wh','Load condition'],...data.map(d=>[d.t.toFixed(2),(d.t/60).toFixed(3),d.soc.toFixed(3),d.v.toFixed(4),d.i.toFixed(4),d.p.toFixed(4),d.temp,d.usableCap.toFixed(4),d.effectiveResistance.toFixed(4),d.ah.toFixed(5),d.wh.toFixed(5),d.road])];const csv=rows.map(r=>r.map(v=>'"'+String(v).replace(/"/g,'""')+'"').join(',')).join('\r\n'),blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download='EV_Battery_Analyzer_Simulation.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000)});
+$('clear').addEventListener('click',()=>{data=[];record();update()});window.addEventListener('resize',draw);reset();
+})();
+</script></body></html>
